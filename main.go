@@ -27,6 +27,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/dalefarnsworth/go-xmodem/xmodem"
@@ -35,13 +37,11 @@ import (
 
 const (
 	versionMajor = 1
-	versionMinor = 0
+	versionMinor = 1
 
 	uploadTimeout = 10 * time.Second
 
 	buflen = 16 * 1024
-
-	devName = "/dev/stdin"
 )
 
 var progname string
@@ -71,7 +71,7 @@ func xmodemSend1K(term *term.Term, data []byte) {
 		log.Fatal(err)
 	}
 
-	fmt.Fprintln(os.Stderr, "Transfer complete.")
+	fmt.Fprintln(os.Stderr, "\nTransfer complete.")
 
 	term.Flush()
 }
@@ -83,7 +83,7 @@ func usage(strs ...string) {
 		}
 		fmt.Fprintln(os.Stderr)
 	}
-	fmt.Fprintf(os.Stderr, "Usage: %s <file_to_send>\n", progname)
+	fmt.Fprintf(os.Stderr, "Usage: %s <file_to_send> [devname [baud]]\n", progname)
 	fmt.Fprintf(os.Stderr, "  or   %s --help\n", progname)
 	fmt.Fprintf(os.Stderr, "  or   %s --version\n", progname)
 	os.Exit(1)
@@ -93,11 +93,13 @@ func help() {
 	help := `
 This program sends xmodem 1k packets using stdin/stdout.
 
-    Usage: %s <file_to_send>
+    Usage: %s <file_to_send> [devname [baud]]
       or   %s --help
       or   %s --version
 
-where <file_to_send> is the name of the file to be sent via xmodem.`
+where <file_to_send> is the name of the file to be sent via xmodem,
+devname is the optional serial device name, and
+baud is the desired baud rate.`
 
 	fmt.Printf(help, progname, progname, progname)
 	fmt.Println()
@@ -112,34 +114,63 @@ func main() {
 	log.SetPrefix(progname + ": ")
 	log.SetFlags(log.Lshortfile)
 
-	if len(os.Args) != 2 {
+	nArgs := len(os.Args)
+
+	if nArgs < 2 || nArgs > 4 {
 		usage()
 	}
 
-	switch os.Args[1] {
-	case "-h", "--help":
-		help()
-		os.Exit(0)
+	if nArgs == 2 {
+		switch os.Args[1] {
+		case "-h", "--help":
+			help()
+			os.Exit(0)
 
-	case "-v", "--version":
-		version()
-		os.Exit(0)
+		case "-v", "--version":
+			version()
+			os.Exit(0)
+		}
 	}
 
 	filename := os.Args[1]
 
-	term, err := term.Open(devName, term.RawMode)
+	devName := ""
+	if nArgs > 2 {
+		devName = os.Args[2]
+	}
+
+	baud := 0
+	if nArgs == 4 {
+		baudString := os.Args[3]
+		var err error
+		baud, err = strconv.Atoi(baudString)
+		if err != nil {
+			usage("Unrecognized baud: %s\n", baudString)
+		}
+	}
+
+	var t *term.Term
+	var err error
+	if devName != "" {
+		t, err = term.Open(devName, term.RawMode)
+	} else {
+		t, err = term.OpenFD(syscall.Stdin, term.RawMode)
+	}
 	if err != nil {
 		usage(err.Error())
 	}
-	defer term.Close()
+	defer t.Close()
+
+	if baud != 0 {
+		t.SetSpeed(baud)
+	}
 
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		usage(err.Error())
 	}
 
-	xmodemSend1K(term, data)
+	xmodemSend1K(t, data)
 
-	term.Restore()
+	t.Restore()
 }
