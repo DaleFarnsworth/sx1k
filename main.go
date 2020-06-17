@@ -37,7 +37,7 @@ import (
 
 const (
 	versionMajor = 1
-	versionMinor = 1
+	versionMinor = 2
 
 	uploadTimeout = 10 * time.Second
 
@@ -149,8 +149,12 @@ func main() {
 		}
 	}
 
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		usage(err.Error())
+	}
+
 	var t *term.Term
-	var err error
 	if devName != "" {
 		t, err = term.Open(devName, term.RawMode)
 	} else {
@@ -159,18 +163,12 @@ func main() {
 	if err != nil {
 		usage(err.Error())
 	}
+	defer t.Restore()
 	defer t.Close()
 
 	if baud != 0 {
 		t.SetSpeed(baud)
 	}
 
-	data, err := ioutil.ReadFile(filename)
-	if err != nil {
-		usage(err.Error())
-	}
-
 	xmodemSend1K(t, data)
-
-	t.Restore()
 }
